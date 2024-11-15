@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>智能音箱系统</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        .status {
+            font-size: 24px;
+            margin: 20px;
+            padding: 10px;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .log {
+            margin: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            height: 400px;
+            overflow-y: auto;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .error {
+            color: #d32f2f;
+            font-weight: bold;
+        }
+        .user-message {
+            color: #1976d2;
+        }
+        .ai-message {
+            color: #388e3c;
+        }
+        .system-message {
+            color: #f57c00;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            border-radius: 3px;
+        }
+        .message:hover {
+            background-color: #f5f5f5;
+        }
+    </style>
+</head>
+<body>
+    <div class="status" id="status">等待初始化...</div>
+    <div class="log" id="log"></div>
+
+    <script>
+        const WAKE_WORD = "小路";
+        const API_KEY = '这里填写文心一言API账号'; // 修改这里
+        const SECRET_KEY = '这里填写API密码'; // 修改这里
+        let accessToken = null;
+        let recognition = null;
+        let isInitialized = false;
+        let isListening = false;
+        let isSpeaking = false;
+
+        // 初始化语音识别
+        function initSpeechRecognition() {
+            if (isInitialized) return;
+            
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = 'zh-CN';
+            
+            // 配置识别结果处理
+            recognition.onresult = async (event) => {
+                const text = event.results[event.results.length - 1][0].transcript.trim();
+                if (!text) return;
+                
+                logMessage('用户: ' + text);
+
+                if (text.includes(WAKE_WORD)) {
+                    if (!isListening) {
+                        isListening = true;
+                        document.getElementById('status').textContent = '已唤醒，请说出您的指令';
+                        speak('我在听');
+                    }
+                } else if (isListening) {
+                    handleUserCommand(text);
+                }
+            };
+
+            // 错误处理
+            recognition.onerror = (event) => {
+                console.log('识别错误:', event.error);
+                if (event.error === 'no-speech') {
+                    restartRecognition();
+                } else {
+                    logMessage('系统: 语音识别出现问题，正在重新启动...');
+                    restartRecognition();
+                }
+            };
+
+            // 结束处理
+            recognition.onend = () => {
+                restartRecognition();
+            };
+
+            isInitialized = true;
+        }
+
+        // 重启识别
+        function restartRecognition() {
+            if (isSpeaking) return;
+            
+            try {
+                recognition.stop();
+            } catch (e) {
+                console.log('停止识别失败:', e);
+            }
+
+            setTimeout(() => {
+                try {
+                    if (!isSpeaking) {
+                        recognition.start();
+                        console.log('重新启动识别');
+                    }
+                } catch (e) {
+                    console.log('启动识别失败:', e);
+                    setTimeout(restartRecognition, 1000);
+                }
+            }, 300);
+        }
+
+        // 处理用户命令
+        async function handleUserCommand(text) {
+            try {
+                document.getElementById('status').textContent = '正在思考...';
+                const response = await callErnieBot(text);
+                if (response) {
+                    logMessage('AI: ' + response);
+                    speak(response);
+                }
+                isListening = false;
+                document.getElementById('status').textContent = '等待唤醒...';
+            } catch (error) {
+                console.error('处理响应错误:', error);
+                document.getElementById('status').textContent = '发生错误';
+                logMessage('系统错误: ' + error.message);
+                speak('抱歉，我遇到了一些问题');
+                isListening = false;
+            }
+        }
+
+        // 获取access token
+        async function getAccessToken() {
+            try {
+                const response = await fetch('http://localhost:3000/get-token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ API_KEY, SECRET_KEY })
+                });
+                const data = await response.json();
+                if (!data.access_token) {
+                    throw new Error('获取access token失败');
+                }
+                return data.access_token;
+            } catch (error) {
+                console.error('获取token失败:', error);
+                logMessage('系统错误: ' + error.message);
+                throw error;
+            }
+        }
+
+        // 调用文心一言API
+        async function callErnieBot(text) {
+            try {
+                console.log('Sending text to server:', text);
+                const response = await fetch('http://localhost:3000/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: text,
+                        access_token: accessToken
+                    })
+                });
+                
+                const data = await response.json();
+                console.log('Server response:', data);
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                return data.result;
+            } catch (error) {
+                console.error('API调用失败:', error);
+                throw error;
+            }
+        }
+
+        // 语音合成
+        function speak(text) {
+            if (isSpeaking) {
+                window.speechSynthesis.cancel();
+            }
+            
+            recognition.stop(); // 说话时停止识别
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'zh-CN';
+            utterance.onstart = () => {
+                isSpeaking = true;
+            };
+            utterance.onend = () => {
+                isSpeaking = false;
+                restartRecognition(); // 说完话后重新开始识别
+            };
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // 记录消息
+        function logMessage(message) {
+            const logDiv = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            let className = 'system-message';
+            if (message.startsWith('用户:')) {
+                className = 'user-message';
+            } else if (message.startsWith('AI:')) {
+                className = 'ai-message';
+            }
+            logDiv.innerHTML += `<div class="message ${className}">[${time}] ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        // 页面加载时初始化
+        window.onload = async () => {
+            try {
+                logMessage('系统: 正在初始化...');
+                accessToken = await getAccessToken();
+                initSpeechRecognition();
+                logMessage('系统: 初始化完成，等待唤醒...');
+                logMessage('系统: 请说"小路"来唤醒我');
+                document.getElementById('status').textContent = '等待唤醒...';
+                recognition.start();
+            } catch (error) {
+                document.getElementById('status').innerHTML = '<span class="error">初始化失败</span>';
+                logMessage('系统错误: ' + error.message);
+            }
+        };
+    </script>
+</body>
+</html>

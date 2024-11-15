@@ -1,0 +1,20 @@
+使用步骤：
+确保已安装 Node.js
+若未安装，
+访问 Node.js 官网：https://nodejs.org/
+点击下载 LTS 版本（左边的按钮）
+运行下载的安装程序
+全部点击"下一步"即可完成安装
+验证安装：
+完成安装后，关闭当前的 PowerShell 窗口
+重新打开一个新的 PowerShell 窗口
+输入以下命令验证安装：
+Bash
+如果显示版本号，说明安装成功
+然后再次执行之前的命令：
+Bash
+
+在项目文件夹中打开终端，运行：
+   node server.js
+在浏览器中访问 http://localhost:3000
+在 index.html 中填入您的 API Key 和 Secret Key
